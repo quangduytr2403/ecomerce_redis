@@ -1,12 +1,49 @@
 import type { CreateBidAttrs, Bid } from '$services/types';
-import { client } from '$services/redis';
+import { client, withLock } from '$services/redis';
 import { bidHistoryKey, itemsKey, itemsByPriceKey } from '$services/keys';
 import { DateTime } from 'luxon';
 import { getItem } from './items';
 
 export const createBid = async (attrs: CreateBidAttrs) => {
-	return client.executeIsolated(async (isolatedClient) => {
-		await isolatedClient.watch(itemsKey(attrs.itemId));
+	// Use watch
+	// return client.executeIsolated(async (isolatedClient) => {
+	// 	await isolatedClient.watch(itemsKey(attrs.itemId));
+	// 	const item = await getItem(attrs.itemId);
+
+	// 	if (!item) {
+	// 		throw new Error('Item not found');
+	// 	}
+
+	// 	if (item.price >= attrs.amount) {
+	// 		throw new Error('Bid amount is too low');
+	// 	}
+
+	// 	if (item.endingAt.diff(DateTime.now()).toMillis() < 0) {
+	// 		throw new Error('Item closed to bidding');
+	// 	}
+
+	// 	const serialized = serializeHistory(
+	// 		attrs.amount,
+	// 		attrs.createdAt.toMillis(),
+	// 	)
+
+	// 	return isolatedClient
+	// 		.multi()
+	// 		.rPush(bidHistoryKey(attrs.itemId), serialized)
+	// 		.hSet(itemsKey(attrs.itemId), {
+	// 			bids: item.bids + 1,
+	// 			price: attrs.amount,
+	// 			highestBidderId: attrs.userId,
+	// 		})
+	// 		.zAdd(itemsByPriceKey(), {
+	// 			score: attrs.amount,
+	// 			value: item.id,
+	// 		})
+	// 		.exec();
+	// })
+
+	// Use lock
+	return withLock(`item:${attrs.itemId}:bids`, async () => {
 		const item = await getItem(attrs.itemId);
 
 		if (!item) {
@@ -26,20 +63,19 @@ export const createBid = async (attrs: CreateBidAttrs) => {
 			attrs.createdAt.toMillis(),
 		)
 
-		return isolatedClient
-			.multi()
-			.rPush(bidHistoryKey(attrs.itemId), serialized)
-			.hSet(itemsKey(attrs.itemId), {
+		return Promise.all([
+			client.rPush(bidHistoryKey(attrs.itemId), serialized),
+			client.hSet(itemsKey(attrs.itemId), {
 				bids: item.bids + 1,
 				price: attrs.amount,
 				highestBidderId: attrs.userId,
-			})
-			.zAdd(itemsByPriceKey(), {
+			})	,
+			client.zAdd(itemsByPriceKey(), {
 				score: attrs.amount,
 				value: item.id,
 			})
-			.exec();
-	})
+		]);
+	});
 };
 
 export const getBidHistory = async (itemId: string, offset = 0, count = 10): Promise<Bid[]> => {
