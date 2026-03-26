@@ -40,6 +40,23 @@ const client = createClient({
 				return [itemsViewsKey(itemId), itemsKey(itemId), itemsByViewsKey(), itemId, userId];
 			},
 			transformReply() { }
+		}),
+		unlock: defineScript({
+			NUMBER_OF_KEYS: 1,
+			SCRIPT: `
+				local lockKey = KEYS[1]
+				local token = ARGV[1]
+				
+				if redis.call('GET', lockKey) == token then
+					return redis.call('DEL', lockKey)
+				end
+			`,
+			transformArguments(lockKey: string, token: string) {
+				return [lockKey, token];
+			},
+			transformReply(reply: any) {
+				return reply;
+			}
 		})
 	}
 });

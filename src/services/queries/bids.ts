@@ -43,7 +43,7 @@ export const createBid = async (attrs: CreateBidAttrs) => {
 	// })
 
 	// Use lock
-	return withLock(`item:${attrs.itemId}:bids`, async () => {
+	return withLock(`item:${attrs.itemId}:bids`, async (lockedClient: typeof client) => {
 		const item = await getItem(attrs.itemId);
 
 		if (!item) {
@@ -64,13 +64,13 @@ export const createBid = async (attrs: CreateBidAttrs) => {
 		)
 
 		return Promise.all([
-			client.rPush(bidHistoryKey(attrs.itemId), serialized),
-			client.hSet(itemsKey(attrs.itemId), {
+			lockedClient.rPush(bidHistoryKey(attrs.itemId), serialized),
+			lockedClient.hSet(itemsKey(attrs.itemId), {
 				bids: item.bids + 1,
 				price: attrs.amount,
 				highestBidderId: attrs.userId,
-			})	,
-			client.zAdd(itemsByPriceKey(), {
+			}),
+			lockedClient.zAdd(itemsByPriceKey(), {
 				score: attrs.amount,
 				value: item.id,
 			})
